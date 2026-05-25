@@ -36,10 +36,10 @@ echo "${EXTRA_PARAM}"
 
 # Read target entry from CSV
 CONF=$(sed -n "${JOB_INDEX}p" "${LIST_PATH}")
-BRAND=$(echo "$CONF" | csvtool col 1 -)
-NAME=$(echo "$CONF" | csvtool col 2 -)
+BRAND=$(echo "$CONF" | csvtool col 1 - | tr -d '"')
+NAME=$(echo "$CONF" | csvtool col 2 - | tr -d '"')
 IMG_PATH="/shared/$(echo "$CONF" | csvtool col 3 - | tr -d '"')"
-SHA256=$(echo "$CONF" | csvtool col 4 -)
+SHA256=$(echo "$CONF" | csvtool col 4 - | tr -d '"')
 
 # ---- 2. Derived paths -------------------------------------------------------
 
@@ -148,10 +148,10 @@ CMD="timeout 7200 python3 /fw/firmwell.py \
     --fs_path /tmp/ori_fs \
     --jobindex ${JOB_INDEX} \
     --firmhash ${SHA256} \
-    --privileged \
     --export \
     --firmae /work/${JOB_INDEX}/FirmAE \
     --rehost_type=HTTP"
+
 
 if [[ -n "$EXTRA_PARAM" ]]; then
     CMD="$CMD $EXTRA_PARAM"

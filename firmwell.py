@@ -116,6 +116,7 @@ class FIRMWELL():
         self.httpd_name = ""
         self.qemu_path = ""
         self.qemu_arch = ""
+        self.arch = None
 
         self.urls = [args.ip]
         self.ports_base = self.setup_ports(args.ports)
@@ -316,12 +317,10 @@ class FIRMWELL():
         self.qemu_path = self.gh.get_qemu_run_path()
         self.qemu_arch = self.gh.get_qemu_arch()
 
-        if "qemu-mips-static" in self.qemu_arch:
-            self.arch = "mips"
-        if "qemu-mipsel-static" in self.qemu_arch:
-            self.arch = "mipsel"
-        if "qemu-arm-static" in self.qemu_arch:
-            self.arch = "arm"
+        # Use the canonical arch detected by the planter's Fixer (covers
+        # arm/armeb/x86/x86_64/mips/mipsel/ppc) instead of reverse-mapping a
+        # subset from qemu_arch, which left self.arch unset for x86/armeb/ppc.
+        self.arch = getattr(self.gh.fixer, "arch", None)
 
         return True
 
@@ -586,7 +585,6 @@ class FIRMWELL():
 
         
         
-        # if self.args.export and not self.system:  # export for debug
         if wellformed and not system_flag and self.args.export and not self.system:  # do verify
             dest_dir = os.path.join("/tmp", f"{self.name}_rehosted")
             mininal_dir = os.path.join(dest_dir, "minimal")
@@ -616,9 +614,9 @@ class FIRMWELL():
                     print("export rehosting result success!!!")
                 else:
                     new_ip = f"{ip_prefix}.1"
+                    fresh_checker = self.get_checker()
                     http_success = fresh_checker.probe([new_ip], [port]) # 192.168.0.50 -> 192.168.0.1
                     if http_success:
-                        print("export rehosting result success!!!")
                         config_file = os.path.join(dest_dir, 'config.json')
                         config_data = json.load(open(config_file, 'r'))
                         config_data['targetip'] = new_ip
@@ -628,7 +626,6 @@ class FIRMWELL():
 
                         print("export rehosting result success!!!")
 
-                        
                     else:
                         print("fail to export rehosting result!!!")
 

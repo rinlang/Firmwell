@@ -28,9 +28,9 @@ LOCAL_OUT=${5}
 # ---- Parse CSV to get target info --------------------------------------------
 
 CONF=$(sed -n "${JOB_INDEX}p" "${LIST_PATH}")
-BRAND=$(echo "$CONF" | csvtool col 1 -)
-NAME=$(echo "$CONF" | csvtool col 2 -)
-SHA256=$(echo "$CONF" | csvtool col 4 -)
+BRAND=$(echo "$CONF" | csvtool col 1 - | tr -d '"')
+NAME=$(echo "$CONF" | csvtool col 2 - | tr -d '"')
+SHA256=$(echo "$CONF" | csvtool col 4 - | tr -d '"')
 
 FIX_PATH=${DIR_PATH}/fix/${JOB_INDEX}
 RSF_PATH=${DIR_PATH}/rsf/${JOB_INDEX}
@@ -51,7 +51,7 @@ fi
 
 if [ -f "$csv_file" ] && [ -n "$full_set_id" ]; then
     LINE=$(sed -n "${full_set_id}p" "${csv_file}")
-    full_set_name=$(echo "${LINE}" | csvtool col 2 -)
+    full_set_name=$(echo "${LINE}" | csvtool col 2 - | tr -d '"')
     full_set_path="/shared/$(echo "${LINE}" | csvtool col 3 - | tr -d '"')"
 
     echo "full_set_id: ${full_set_id}" >> "${LOCAL_OUT}" 2>&1
@@ -74,9 +74,9 @@ if [ -f "$csv_file" ] && [ -n "$full_set_id" ] && [ -e "/shared/extracted_fs/${f
     cp "/shared/extracted_fs/${full_set_id}.kernel" "/output/images/${JOB_INDEX}.kernel" >> "${LOCAL_OUT}" 2>&1
     cp "/shared/extracted_fs/${full_set_id}.kernel" "/work/${JOB_INDEX}/FirmAE/images/" >> "${LOCAL_OUT}" 2>&1
 else
-    # ---- Run extraction via firmwell.py --------------------------------------
+    # ---- Run extraction via firmwell.py ----------------------------------------
 
-    echo "Extracted files not found or csv_file/full_set_id missing, proceeding with extraction" >> "${LOCAL_OUT}" 2>&1
+    echo "Pre-extracted fs not found for job ${JOB_INDEX} (full_set_id=${full_set_id}), proceeding with extraction" >> "${LOCAL_OUT}" 2>&1
 
     docker load -i /docker_img/fact_extractor.tar
 

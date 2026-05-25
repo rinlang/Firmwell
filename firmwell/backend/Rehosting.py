@@ -1250,6 +1250,20 @@ class Rehosting:
                     )
                 
                 self.fix_round += 1
+                # Persist the peer process cmdline so that build_run_bg_sh can
+                # reproduce it inside the exported container. fix_shared_memory
+                # peers reuse httpd_cmdline, which would re-run the target.
+                if candidate.get("fix_strategy") != "fix_shared_memory":
+                    peer_cmd = ipc_process_name_cmdline
+                    if self.fs_path in peer_cmd:
+                        peer_cmd = peer_cmd.replace(self.fs_path, "")
+                    if self.tmp_fs_path in peer_cmd:
+                        peer_cmd = peer_cmd.replace(self.tmp_fs_path, "")
+                    ori_fs_marker = f"/tmp/{self.hash}/ori_fs"
+                    if ori_fs_marker in peer_cmd:
+                        peer_cmd = peer_cmd.replace(ori_fs_marker, "")
+                    if peer_cmd and peer_cmd not in self.bg_cmds:
+                        self.bg_cmds.append(peer_cmd)
                 self.rehosting_binary(ipc_process_name_cmdline, self.fix_round, is_peer_process= True)
                 
                 
@@ -1561,19 +1575,28 @@ class Rehosting:
         flag = binary_containt_strings(os.path.join(self.fs_path, httpd_path), "ubus.sock")
         if flag:
             ubus_path = self.FileSystem.get_exe_path_by_name("ubusd")
-            bg_cmd.append(f"{ubus_path} &")
-            self.ipc_process = "ubus"
-            
+            if ubus_path:
+                bg_cmd.append(f"/{ubus_path.lstrip('/')} &")
+                self.ipc_process = "ubus"
+
         # check inetd
         httpd_path = self.FileSystem.get_rel_path(self.httpd_path)
         if binary_containt_strings(os.path.join(self.fs_path, httpd_path), "/var/run/inetd.pid"):
             inetd_path = self.FileSystem.get_exe_path_by_name("inetd")
             if inetd_path:
-                bg_cmd.append(f"{inetd_path} &")
+                bg_cmd.append(f"/{inetd_path.lstrip('/')} &")
 
-        cfg_manager = os.path.join(self.fs_path, "userfs/bin/cfg_manager")
-        if os.path.exists(cfg_manager):
-            bg_cmd.append(f"{cfg_manager} &")
+        cfg_manager_rel = "userfs/bin/cfg_manager"
+        if os.path.exists(os.path.join(self.fs_path, cfg_manager_rel)):
+            bg_cmd.append(f"/{cfg_manager_rel} &")
+            if not self.ipc_process:
+                self.ipc_process = "cfg_manager"
+
+        # Append peer processes discovered during FIX-IN-PEER rehosting
+        for peer_cmd in getattr(self, "bg_cmds", []):
+            entry = f"{peer_cmd} &"
+            if entry not in bg_cmd:
+                bg_cmd.append(entry)
 
 
         bg_script_path = os.path.join(fs, BG_SCRIPT)
@@ -1689,10 +1712,37 @@ class Rehosting:
 
         cmd = f"tar -C /fs -cf /{tar_file} --numeric-owner --exclude=proc --exclude=sys --exclude='*.sock' --exclude='*.fifo' --exclude='*.pipe' ."
         self.env.exec(cmd, detach=True)
-        if not self.debug:
-            time.sleep(40)
+
+        # Wait for tar to finish by polling tar file size for stability instead
+        # of a blind time.sleep — large filesystems can take longer than 40s,
+        # and a truncated tar produces a half-extracted snapshot that breaks
+        # the exported docker-compose run.
+        max_wait = 600 if not self.debug else 120
+        poll_interval = 3
+        required_stable_polls = 2
+        prev_size = -1
+        stable_polls = 0
+        elapsed = 0
+        while elapsed < max_wait:
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+            size_out = self.env.exec(
+                f"sh -c 'stat -c %s /{tar_file} 2>/dev/null || echo 0'",
+                noprint=True,
+            )
+            try:
+                cur_size = int((size_out or "0").strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                cur_size = 0
+            if cur_size > 0 and cur_size == prev_size:
+                stable_polls += 1
+                if stable_polls >= required_stable_polls:
+                    break
+            else:
+                stable_polls = 0
+            prev_size = cur_size
         else:
-            time.sleep(10)
+            print(f"[warn] tar /{tar_file} did not stabilize within {max_wait}s, proceeding anyway")
 
         self.docker_manager.docker_cp_to_host(f"/{tar_file}", "/tmp")
         time.sleep(3)
@@ -1810,6 +1860,21 @@ class Rehosting:
 
         incremental_copy(os.path.join(mindestfs, "dev"), os.path.join(mindestfs, "ghdev"))  # /dev will be replaced at runtime
 
+        # copy tmp, etc, dev folders for debug container (same ghost dir setup as minimal)
+        tmp_path = str(pathlib.Path(os.path.join(debugdestfs, "tmp")).resolve())
+        if not tmp_path.startswith(debugdestfs):
+            tmp_path = os.path.join(debugdestfs, tmp_path.strip("/"))
+        if not os.path.exists(tmp_path):
+            Files.mkdir(tmp_path, silent=True)
+        Files.copy_directory(tmp_path, os.path.join(debugdestfs, "ghtmp"))
+        etc_path = str(pathlib.Path(os.path.join(debugdestfs, "etc")).resolve())
+        if not etc_path.startswith(debugdestfs):
+            etc_path = os.path.join(debugdestfs, etc_path.strip("/"))
+        if not os.path.exists(etc_path):
+            Files.mkdir(etc_path, silent=True)
+        Files.copy_directory(etc_path, os.path.join(debugdestfs, "ghetc"))
+        incremental_copy(os.path.join(debugdestfs, "dev"), os.path.join(debugdestfs, "ghdev"))
+
         ports = self.export_config_json(dest_dir, result)
 
         # create dockerfile in minfs
@@ -1864,43 +1929,41 @@ class Rehosting:
             Files.copy_file(composeSrc, composeMinDest, silent=True)
             Files.copy_file(composeSrc, composeDebugDest, silent=True)
 
-        # some firmware /bin/sh is broken
-        sh = os.path.join(mindestfs, "bin", "sh")
-        busybox = os.path.join(mindestfs, "bin", "busybox")
-
-        print("Checking binary at ", sh)
-        sp = subprocess.run(["file", sh], stdout=PIPE, stderr=PIPE)
-        stdout = sp.stdout.decode('u8')
-        stdout = stdout.replace(sh, "")
-        print("    - ", stdout)
-        if ": data" in stdout:
-            try:
-                curr_dir = os.getcwd()
-                print(curr_dir)
-                os.chdir(os.path.dirname(sh))
-
-                os.remove("sh")
-                os.symlink("busybox", "sh")
-
-                os.chdir(curr_dir)
-            except Exception as e:
-                print("[error] some firmware /bin/sh is broken")
-                print(e)
-
-
-        # clean fs
-        print("Cleaning up ", self.fs_path)
+        # some firmware /bin/sh is broken — fix for both minimal and debug
         ARTIFACTS = ["GREENHOUSE_WEB_CANARY", "shm_id", "GH_SUCCESSFUL_BIND", "QEMU_CMDLINE"]
+        for destfs in [mindestfs, debugdestfs]:
+            sh = os.path.join(destfs, "bin", "sh")
 
-        for root, dirs, files in os.walk(mindestfs, topdown=False):
-            for f in files:
-                if f in ARTIFACTS or f.startswith("trace.log"):
-                    path = os.path.join(root, f)
-                    Files.rm_target(path, silent=True)
-            for d in dirs:
-                if d in ARTIFACTS:
-                    path = os.path.join(root, d)
-                    Files.rm_target(path, silent=True)
+            print("Checking binary at ", sh)
+            sp = subprocess.run(["file", sh], stdout=PIPE, stderr=PIPE)
+            stdout = sp.stdout.decode('u8')
+            stdout = stdout.replace(sh, "")
+            print("    - ", stdout)
+            if ": data" in stdout:
+                try:
+                    curr_dir = os.getcwd()
+                    print(curr_dir)
+                    os.chdir(os.path.dirname(sh))
+
+                    os.remove("sh")
+                    os.symlink("busybox", "sh")
+
+                    os.chdir(curr_dir)
+                except Exception as e:
+                    print("[error] some firmware /bin/sh is broken")
+                    print(e)
+
+            # clean fs artifacts
+            print("Cleaning up ", destfs)
+            for root, dirs, files in os.walk(destfs, topdown=False):
+                for f in files:
+                    if f in ARTIFACTS or f.startswith("trace.log"):
+                        path = os.path.join(root, f)
+                        Files.rm_target(path, silent=True)
+                for d in dirs:
+                    if d in ARTIFACTS:
+                        path = os.path.join(root, d)
+                        Files.rm_target(path, silent=True)
         print("...done!")
 
     def run_init_bash(self):
@@ -2978,7 +3041,7 @@ class Rehosting:
 
             
             try:
-                if (wellformed or connected) and self.args.export:
+                if wellformed and self.args.export:
                     
                     if self.system_flag:
                         print("TODO export system mode")
@@ -3007,7 +3070,12 @@ class Rehosting:
             print(subprocess.check_output(["free", "-h"]).decode('u8'))
             
         finally:
-            self.env.remove_docker()
+            env = getattr(self, "env", None)
+            if env is not None and hasattr(env, "remove_docker"):
+                try:
+                    env.remove_docker()
+                except Exception as cleanup_err:
+                    print(f"[remove_docker] cleanup error: {cleanup_err}")
 
         print("<" * 60)
         print("DONE!")

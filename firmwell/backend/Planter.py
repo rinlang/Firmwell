@@ -275,6 +275,11 @@ class Fixer():
         
         ensure_directory(os.path.join(fs_path, "proc"))
         ensure_directory(os.path.join(fs_path, "sys"))
+
+        Files.mkdir(os.path.join(fs_path, "var", "tmp"), root=fs_path)
+        Files.mkdir(os.path.join(fs_path, "var", "run"), root=fs_path)
+        Files.mkdir(os.path.join(fs_path, "tmp", "run"), root=fs_path)
+        Files.mkdir(os.path.join(fs_path, "tmp", "var"), root=fs_path)
         
         if self.find_file("xmldump", fs_path):
             Files.mkdir(os.path.join(fs_path, "var", "tmp"), root=fs_path)
@@ -1781,7 +1786,7 @@ Bus error
         '''
         debug_script = ['set -x', 'exec >> FIRMWELL_BASH 2>&1', "echo $0"]
         protect_file = ['fake_mtd.sh', 'sanitize_dev.sh', 'killer.sh', 'fw.sh', "create_mtd.sh", "clean_fs.sh",
-                        "GH_PATH_TRAVERSAL", "fw_watchdog.sh"]
+                        "GH_PATH_TRAVERSAL", "fw_watchdog.sh", "functions.sh", "webupgrade.sh"]
         protect_file += ["passwd", "phpsh", "config", "lua"]
         protect_dir = ['dumaos', "gh_nvram"]
         analyzed = set()
@@ -1798,6 +1803,9 @@ Bus error
                 continue
 
             if any(i in name for i in protect_file):
+                continue
+
+            if "www/cgi-bin" in abs_path and name.endswith(".sh"):
                 continue
 
             # if name not endswith .php, .lua
