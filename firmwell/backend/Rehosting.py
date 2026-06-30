@@ -2087,7 +2087,9 @@ class Rehosting:
         
         print("get_service_cmdline1")
         for pid, ps in process_dict.items():
-            if ".sh" in ps: # exclude webs.sh
+            # if ".sh" in ps: 
+            # exclude webs.sh
+            if os.path.basename(ps.strip().split(" ")[0]).endswith(".sh"):
                 continue
             
             if ps.startswith("./"):
