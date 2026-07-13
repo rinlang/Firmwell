@@ -60,6 +60,8 @@ CMD="timeout 7200 python3 /fw/firmwell.py \
     --rehost_type=HTTP \
     --fixpath=/tmp/fixlog/${SHA256}.json \
     --firmhash ${SHA256} \
+    --jobindex=1 \
+    --firmae=/work/1/FirmAE \
     --export \
     --max_cycles=10"
 
