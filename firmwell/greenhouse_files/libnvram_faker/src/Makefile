@@ -34,8 +34,8 @@ $(INI_OBJ):
 %.o:%.c
 	$(CC) -Wall $(INCLUDES) $(CFLAGS) -fPIC -c -o $@ $<
 
-$(LIB): $(OBJS) $(INI_OBJ)
-	$(CC) -shared -o $@ $^ -Wl,-nostdlib
+$(LIB): $(OBJS)
+	$(CC) -shared -nostdlib -o $@ $^
 
 nvram_faker_exe:$(EXE_OBJ) $(OBJS) $(INI_OBJ)
 	$(CC) -Wall -o $@ $^ 
