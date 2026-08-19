@@ -5,6 +5,7 @@ include $(TRUNK)/arch.mk
 AR?=ar
 
 CFLAGS+=-ggdb
+CFLAGS+= -O0 -fno-stack-protector -fdata-sections -ffunction-sections
 CFLAGS+= -DINI_MAX_LINE=2000
 CFLAGS+= -DINI_USE_STACK=0
 export CFLAGS
@@ -35,7 +36,7 @@ $(INI_OBJ):
 	$(CC) -Wall $(INCLUDES) $(CFLAGS) -fPIC -c -o $@ $<
 
 $(LIB): $(OBJS)
-	$(CC) -shared -nostdlib -o $@ $^
+	$(CC) -shared -nostdlib -Wl,--gc-sections -o $@ $^
 
 nvram_faker_exe:$(EXE_OBJ) $(OBJS) $(INI_OBJ)
 	$(CC) -Wall -o $@ $^ 

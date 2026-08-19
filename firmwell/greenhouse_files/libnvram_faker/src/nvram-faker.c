@@ -177,7 +177,7 @@ int dump_key(const char * key) {
 char * read_key(const char * key) {
 char path[0x108];
 char filepath[0x208];
-char buf[0x800];
+char buf[0x804];
 FILE *fp;
 size_t n;
 
@@ -189,11 +189,11 @@ return "";
 memset(path, 0, sizeof(path));
 memset(filepath, 0, sizeof(filepath));
 
-snprintf(path, sizeof(path), "%s", key);
+snprintf(path, 0x107, "%s", key);
 replace_char(path, '/', '_');
-snprintf(filepath, sizeof(filepath), "/gh_nvram/%s", path);
+snprintf(filepath, 0x207, "/gh_nvram/%s", path);
 
-fflush(stderr);
+fflush(stdout);
 if (access(filepath, 0) != 0) {
 dump_key(key);
 }
@@ -203,7 +203,7 @@ if (fp == NULL)
 return "";
 
 memset(buf, 0, sizeof(buf));
-n = fread(buf, 1, sizeof(buf), fp);
+n = fread(buf, 1, 0x803, fp);
 fclose(fp);
 
 if (n == 0)
