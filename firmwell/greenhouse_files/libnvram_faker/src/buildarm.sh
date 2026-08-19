@@ -1,51 +1,27 @@
 #!/bin/sh
+# Build libnvram-faker.so for ARM (glibc/musl/uclibc).
+# Override compilers with ARM_GLIBC_CC, ARM_MUSL_CC, ARM_UCLIBC_CC.
+set -e
 
-export ARCH=arm
-TARGET=$1
+SRC_DIR=$(cd "$(dirname "$0")" && pwd)
+OUT_DIR=$(dirname "$SRC_DIR")/lib
 
-# Sets up toolchain environment variables for arm toolchain
-# Tested against armv7-eabihf, glibc from toolchains.free-electrons.com
-
-warn()
-{
-	echo "$1" >&2
+build_one() {
+    libc="$1"
+    cc="$2"
+    ar="$3"
+    echo "=== Building arm/$libc with $cc ==="
+    make -C "$SRC_DIR" clean >/dev/null 2>&1 || true
+    make -C "$SRC_DIR" CC="$cc" AR="$ar"
+    mkdir -p "$OUT_DIR/arm/$libc"
+    cp "$SRC_DIR/libnvram-faker.so" "$OUT_DIR/arm/$libc/libnvram-faker.so"
+    echo "-> $OUT_DIR/arm/$libc/libnvram-faker.so"
 }
 
-if [ ! -z $(which arm-linux-gcc) ];
-then
-	export CC=$(which arm-linux-gcc)
-else
-	warn "Not setting CC: can't locate arm-linux-gcc."
-fi
+ARM_GLIBC_CC=${ARM_GLIBC_CC:-arm-linux-gnueabi-gcc}
+ARM_MUSL_CC=${ARM_MUSL_CC:-arm-linux-musleabi-gcc}
+ARM_UCLIBC_CC=${ARM_UCLIBC_CC:-arm-linux-uclibcgnueabi-gcc}
 
-if [ ! -z $(which arm-linux-ld) ];
-then
-	export LD=$(which arm-linux-ld)
-else
-	warn "Not setting LD: can't locate arm-linux-ld."
-fi
-
-if [ ! -z $(which arm-linux-ar) ];
-then
-	export AR=$(which arm-linux-ar)
-else
-	warn "Not setting AR: can't locate arm-linux-ar."
-fi
-
-
-if [ ! -z $(which arm-linux-strip) ];
-then
-	export STRIP=$(which arm-linux-strip)
-else
-	warn "Not setting STRIP: can't locate arm-linux-strip."
-fi
-
-if [ ! -z $(which arm-linux-nm) ];
-then
-	export NM=$(which arm-linux-nm)
-else
-	warn "Not setting NM: can't lcoate arm-linux-nm."
-fi
-
-
-make $TARGET || exit $?
+build_one glibc  "$ARM_GLIBC_CC"  "${ARM_GLIBC_CC%-gcc}-ar"
+build_one musl   "$ARM_MUSL_CC"   "${ARM_MUSL_CC%-gcc}-ar"
+build_one uclibc "$ARM_UCLIBC_CC" "${ARM_UCLIBC_CC%-gcc}-ar"
