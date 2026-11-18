@@ -8,3 +8,8 @@ __pycache__/
 *.eggs/
 *.pytest_cache/
 **/tests/
+.git/
+/.build.log
+eval/
+k8s/
+firmwell/analysis/chrome104.deb
